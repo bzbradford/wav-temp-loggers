@@ -149,7 +149,9 @@ daily <- stn_data %>%
     N = n(),
     Min = min(Temp_F),
     Max = max(Temp_F),
-    Mean = round(mean(Temp_F), 2)
+    Mean = round(mean(Temp_F), 2),
+    Lat = Latitude[1],
+    Long = Longitude[1]
   ) %>%
   dplyr::filter(N == 24) %>%
   mutate(DateTime = as.POSIXct(paste(Date, "12:00:00")))
