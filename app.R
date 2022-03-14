@@ -3,11 +3,18 @@ library(shiny)
 library(plotly)
 library(shinyBS)
 
+therm_locs <- read_csv("data/thermistor-locations.csv")
+therm_inventory <- read_csv("data/thermistor-inventory-2021.csv")
+therm_data <- read_csv("data/2021-thermistor-data.csv.gz")
 loggers <- unique(therm_data$LoggerSN)
 
 ui <- fluidPage(
   tags$head(
     tags$style("
+      body {
+        font-family: 'Lato', sans-serif;
+      }
+      
       .container-fluid {
         max-width: 1000px;
       }
