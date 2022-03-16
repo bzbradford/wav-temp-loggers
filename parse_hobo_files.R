@@ -131,6 +131,7 @@ write_csv(therm_data, "2021-thermistor-data.csv.gz")
 # logger <- therm_data$LoggerSN[1]
 # logger <- "20812288"
 logger <- sample(therm_data$LoggerSN, 1)
+logger <- "21099435"
 
 # select station data
 stn_data <- dplyr::filter(therm_data, LoggerSN == logger) %>%

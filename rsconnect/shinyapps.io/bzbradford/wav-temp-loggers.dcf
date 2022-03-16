@@ -1,0 +1,14 @@
+name: wav-temp-loggers
+title: wav-temp-loggers
+username:
+account: bzbradford
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5851745
+bundleId: 5683336
+url: https://bzbradford.shinyapps.io/wav-temp-loggers/
+when: 1647284544.67041
+lastSyncTime: 1647284544.67041
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .RData|parse_hobo_files.R|hobo_data

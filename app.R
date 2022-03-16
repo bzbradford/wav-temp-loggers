@@ -3,12 +3,36 @@ library(shiny)
 library(plotly)
 library(shinyBS)
 
+
+# Load data ---------------------------------------------------------------
+
 therm_locs <- read_csv("data/thermistor-locations.csv")
-therm_inventory <- read_csv("data/thermistor-inventory-2021.csv")
 therm_data <- read_csv("data/2021-thermistor-data.csv.gz")
+therm_inventory <- read_csv("data/thermistor-inventory-2021.csv") %>%
+  drop_na(`2021 Therm SN`) %>%
+  filter(`2021 Therm SN` %in% therm_data$LoggerSN) %>%
+  arrange(`2021 Therm SN`)
 loggers <- unique(therm_data$LoggerSN)
 
+logger_list <- list()
+for (i in 1:nrow(therm_inventory)) {
+  sn = therm_inventory$`2021 Therm SN`[i]
+  id = therm_inventory$`Station ID`[i]
+  name = therm_inventory$`WAV Station Name`[i]
+  label = ifelse(
+    is.na(id),
+    paste0("SN ", sn, ", Unknown WAV station"),
+    paste0("SN ", sn, ", WAV station ", id, ": ", name)
+  )
+  logger_list[[label]] = sn
+}
+
+
+# UI ----------------------------------------------------------------------
+
 ui <- fluidPage(
+  title = "WAV Stream Temperature Loggers",
+  
   tags$head(
     tags$style("
       body {
@@ -26,18 +50,23 @@ ui <- fluidPage(
     )
   ),
   
-  h1("Water Action Volunteers", align = "center"),
+  div(
+    align = "center",
+    style = "margin-top: 1em;",
+    a(img(src = "wav-logo-color.png", height = "100px"), href = "https://wateractionvolunteers.org", target = "_blank")
+  ),
   
   br(),
   
-  h3("2021 Temperature Logger Data", align = "center"),
+  h2("2021 Temperature Logger Data", align = "center"),
   
   br(),
   
   selectInput(
     inputId = "logger",
-    label = "Select temperature logger SN:",
-    choices = loggers
+    label = "Select temperature logger:",
+    choices = logger_list,
+    width = "100%"
   ),
   
   fluidRow(
@@ -60,7 +89,36 @@ ui <- fluidPage(
     )
   ),
   
+  br(),
+  
+  fluidRow(
+    column(12,
+      h4("More information:"),
+      p(a("Water Action Volunteers", href = "https://wateractionvolunteers.org", target = "_blank"), "is an organization run by the UW-Madison Division of Extension and the Wisconsin Department of Natural Resources. The aim is to engage volunteers across the state to perform repeated, periodic water quality measurements of local streams to improve our understanding of stream health and to inform conservation and restoration efforts. At some stations, automatic temperature loggers are deployed which capture water temperature at hourly intervals. Colder water is generally associated with cleaner, healthier stream ecosystems, including higher insect and fish populations."),
+      p("Temperature is often referred to as a 'master variable' in aquatic ecosystems because temperature determines the speed of important processes, from basic chemical reactions to the growth and metabolism of fishes and other organisms. In addition, temperature determines the type of fish community that the stream can support. It is especially important to gather stream temperature information over many years in order to track how quickly our streams are warming due to climate change. The continuous data loggers you have deployed and maintained are a 21st-century approach to monitoring stream temperature, providing accurate, high-resolution temperature data as we monitor the health of streams across the state."),
+      p("Tips for understanding and interacting with the temperature plot:"),
+      tags$ul(
+        tags$li("Hover over the chart to see hourly and daily temperature measurement details."),
+        tags$li("Click on the legend to show / hide the time series of hourly or daily temperature."),
+        tags$li("Drag the mouse over a time period to zoom in, and double click to return to the original view."),
+        tags$li("While hovering over the plot, click the camera icon along the top to download a picture of the plot."),
+        tags$li("Anomalous temperature readings at the very beginning and end of the data may reflect air temperatures before the logger was deployed into the stream.")
+      )
+    )
+  ),
+  
+  br(),
+  
+  p(
+    style = "color: grey; font-size: smaller;",
+    align = "center",
+    em(paste("Last updated:", format(file.info(".")$mtime, "%Y-%m-%d")))
+  )
+  
 )
+
+
+# Server ------------------------------------------------------------------
 
 server <- function(input, output, sessions) {
   # select station data
@@ -194,7 +252,7 @@ server <- function(input, output, sessions) {
           color = "orange"
         )) %>% 
       layout(
-        title = paste("Temperature at", logger_name),
+        title = paste("Temperature at logger", logger_name),
         showlegend = TRUE,
         xaxis = list(title = "Date and Time"),
         yaxis = list(title = "Temperature (F)"),
