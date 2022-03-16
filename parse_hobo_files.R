@@ -12,13 +12,6 @@ f_to_c <- function(f) {
   (f - 32) * 5.0 / 9 
 }
 
-# temp_convert <- function(temp, unit) {
-#   ifelse(
-#     unit == "F",
-#     
-#   )
-# }
-
 temp_check <- function(temp, unit) {
   ifelse(
     unit == "F",
@@ -27,10 +20,6 @@ temp_check <- function(temp, unit) {
   )
 }
 
-# c_to_f(0)
-# c_to_f(10)
-# f_to_c(32)
-# f_to_c(212)
 
 # test --------------------------------------------------------------------
 
@@ -59,6 +48,7 @@ grepl("°C", names(import)[2])
 
 temp_check(110, "F")
   
+
 
 # Load and prepare thermistor data ----------------------------------------
 
@@ -218,3 +208,23 @@ plot_ly() %>%
     xaxis = list(title = "Date and Time"),
     yaxis = list(title = "Temperature (F)"),
     hovermode = "x unified")
+
+
+
+# map test ----------------------------------------------------------------
+
+library(leaflet)
+
+leaflet(therm_locs) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addCircleMarkers(
+    lat = ~Latitude,
+    lng = ~Longitude,
+    label = ~StationID,
+    radius = 5,
+    weight = 0.5,
+    color = "black",
+    fill = "green",
+    fillColor = "purple",
+    fillOpacity = 0.5
+  )
