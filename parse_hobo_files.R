@@ -95,8 +95,8 @@ raw_data <- lapply(files, function(file) {
 }) %>% bind_rows()
 
 # get supplemental information
-therm_locs <- read_csv("thermistor-locations.csv")
-therm_inventory <- read_csv("thermistor-inventory-2021.csv")
+therm_locs <- read_csv("data/thermistor-locations.csv")
+therm_inventory <- read_csv("data/thermistor-inventory-2021.csv")
 
 # are we missing anything?
 setdiff(raw_data$LoggerSN, therm_inventory$`2021 Therm SN`) # should be zero
@@ -121,7 +121,7 @@ write_csv(therm_data, "2021-thermistor-data.csv.gz")
 # logger <- therm_data$LoggerSN[1]
 # logger <- "20812288"
 logger <- sample(therm_data$LoggerSN, 1)
-logger <- "21099435"
+logger <- "21099430"
 
 # select station data
 stn_data <- dplyr::filter(therm_data, LoggerSN == logger) %>%
