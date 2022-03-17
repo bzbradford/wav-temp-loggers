@@ -42,9 +42,11 @@ for (i in 1:nrow(therm_inventory)) {
 # UI ----------------------------------------------------------------------
 
 ui <- fluidPage(
-  title = "WAV Stream Temperature Loggers",
+  title = "WAV Temperature Logger Data",
   
   tags$head(
+    includeHTML("google-analytics.html"),
+    tags$link(rel = "shortcut icon", href = "favicon.ico"),
     tags$style("
       body {
         font-family: 'Lato', sans-serif;
@@ -61,8 +63,7 @@ ui <- fluidPage(
       .panel-body p {
         padding: 0.5em 1em 0em 1em;
       }
-    "
-    )
+    ")
   ),
   
   div(
