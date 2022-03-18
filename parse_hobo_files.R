@@ -165,8 +165,38 @@ stn_summary <- daily %>%
     across(`Max Temperature`:`Average Temperature`, paste, "°F")) %>%
   pivot_longer(everything(), values_transform = as.character)
 
+
+
+hline <- function(y = 0, color = "black") {
+  list(
+    type = "line",
+    x0 = 0,
+    x1 = 1,
+    xref = "paper",
+    y0 = y,
+    y1 = y,
+    line = list(color = color)
+  )
+}
+
+rect <- function(ymin, ymax, color = "red") {
+  list(
+    type = "rect",
+    fillcolor = color,
+    line = list(color = color),
+    opacity = 0.1,
+    y0 = ymin,
+    y1 = ymax,
+    xref = "paper",
+    x0 = 0,
+    x1 = 1,
+    layer = "below"
+  )
+}
+
+
 # plot hourly and daily temp data
-plot_ly() %>%
+fig <- plot_ly() %>%
   add_ribbons(
     data = daily,
     x = ~ DateTime,
@@ -189,7 +219,7 @@ plot_ly() %>%
     mode = "lines",
     line = list(
       color = "#1f77b4",
-      width = 1,
+      width = 0.5,
       opacity = 0.8
     )) %>%
   add_trace(
@@ -201,13 +231,24 @@ plot_ly() %>%
     mode = "lines",
     line = list(
       color = "orange"
-    )) %>% 
+    ))
+
+fig %>% 
   layout(
     title = paste("Temperature at", logger),
     showlegend = TRUE,
     xaxis = list(title = "Date and Time"),
-    yaxis = list(title = "Temperature (F)"),
-    hovermode = "x unified")
+    yaxis = list(
+      title = "Temperature (F)",
+      range = list(32, 90)),
+    hovermode = "x unified",
+    shapes = list(
+      rect(75, 100, "darkorange"),
+      rect(61, 75, "lightgreen"),
+      rect(52, 61, "green"),
+      rect(32, 52, "cornflowerblue")
+    )
+  )
 
 
 

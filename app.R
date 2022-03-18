@@ -3,6 +3,7 @@ library(shiny)
 library(plotly)
 library(shinyBS)
 library(leaflet)
+library(htmlwidgets)
 
 
 # Load data ---------------------------------------------------------------
@@ -23,8 +24,6 @@ therm_locs <- read_csv("data/thermistor-locations.csv") %>%
   }) %>%
   drop_na(LoggerSN)
 
-loggers <- unique(therm_data$LoggerSN)
-
 logger_list <- list()
 for (i in 1:nrow(therm_inventory)) {
   sn = therm_inventory$`2021 Therm SN`[i]
@@ -37,6 +36,7 @@ for (i in 1:nrow(therm_inventory)) {
   )
   logger_list[[label]] = sn
 }
+
 
 
 # UI ----------------------------------------------------------------------
@@ -59,10 +59,6 @@ ui <- fluidPage(
       .panel-body {
         padding: 0px;
       }
-      
-      .panel-body p {
-        padding: 0.5em 1em 0em 1em;
-      }
     ")
   ),
   
@@ -78,32 +74,10 @@ ui <- fluidPage(
   
   br(),
   
-  selectInput(
-    inputId = "logger",
-    label = "Select temperature logger:",
-    choices = logger_list,
-    width = "100%"
-  ),
-  
-  bsCollapse(
-    bsCollapsePanel(
-      title = "Logger location map",
-      value = "map",
-      uiOutput("mapUI")
-    ),
-    open = "map"
-  ),
-  
-  br(),
-  
+  uiOutput("loggerSelectUI"),
+  uiOutput("mapUI"),
   uiOutput("plotUI"),
-  br(),
-  
-  uiOutput("infoUI"),
-  br(),
-  
-  uiOutput("downloadUI"),
-  br(),
+  uiOutput("infoUI"), br(),
   
   fluidRow(
     column(12,
@@ -123,10 +97,18 @@ ui <- fluidPage(
   
   br(),
   
+  uiOutput("downloadUI"), br(),
+  
+  br(),
+  
+  hr(),
+  
   p(
-    style = "color: grey; font-size: smaller;",
+    style = "color: grey; font-size: smaller; font-style: italic;",
     align = "center",
-    em(paste("Last updated:", format(file.info(".")$mtime, "%Y-%m-%d")))
+    "Developed by Ben Bradford, UW-Madison Entomology", br(),
+    paste("Last updated:", format(file.info(".")$mtime, "%Y-%m-%d")), br(),
+    a("Source code", href = "https://github.com/bzbradford/wav-temp-loggers", target = "_blank")
   )
   
 )
@@ -138,14 +120,343 @@ server <- function(input, output, sessions) {
   
   ## Reactive values ----
   
+  random_logger <- sample(therm_locs$LoggerSN, 1)
+  
+  cur_stn <- reactive({
+    req(input$logger)
+    
+    therm_locs %>%
+      filter(LoggerSN == input$logger)
+  })
+  
   # select station data
   stn_data <- reactive({
-    dplyr::filter(therm_data, LoggerSN == input$logger) %>%
+    req(input$logger)
+    
+    therm_data %>%
+      filter(LoggerSN == input$logger) %>%
       arrange(DateTime)
+  })
+  
+  
+  
+  ## Logger select ----
+  
+  output$loggerSelectUI <- renderUI({
+    selectInput(
+      inputId = "logger",
+      label = "Select temperature logger:",
+      choices = logger_list,
+      selected = random_logger,
+      width = "100%"
+    )
+  })
+  
+  
+  
+  ## Map ----
+  
+  output$mapUI <- renderUI({
+    bsCollapse(
+      bsCollapsePanel(
+        title = "Logger location map",
+        value = "map",
+        leafletOutput("map"),
+        div(style = "margin: 0.5em 1em; 0.5em 1em;", align = "center",
+          p(em(HTML("Currently selected logger is shown in <span style='color: green;'>green</span>."), "Click on any other logger to select it, or choose from the list above.")),
+          p(
+            actionButton("zoom_in", "Zoom to selected site"),
+            actionButton("reset_zoom", "Zoom out to all sites")
+          )
+        )
+      ),
+      open = "map"
+    )
+  })
+  
+  basemaps <- c(
+    "Grey Canvas",
+    "Open Street Map",
+    "ESRI Topo Map",
+    "Nat Geo Topo Map"
+  )
+  
+  output$map <- renderLeaflet({
+    leaflet(therm_locs) %>%
+      addTiles(group = basemaps[2]) %>%
+      addProviderTiles(providers$CartoDB.Positron, group = basemaps[1]) %>%
+      addProviderTiles(providers$Esri.NatGeoWorldMap, group = basemaps[4]) %>%
+      addProviderTiles(providers$Esri.WorldStreetMap, group = basemaps[3]) %>%
+      addCircleMarkers(
+        lat = ~Latitude,
+        lng = ~Longitude,
+        label = ~lapply(paste0(
+          "<b>Station ID:</b> ", StationID, "<br>",
+          "<b>Station Name:</b> ", gsub("\n", "<br>&nbsp;&nbsp;&nbsp;&nbsp;", str_wrap(StationName, width = 40)), "<br>",
+          "<b>Logger SN:</b> ", LoggerSN),
+          HTML),
+        layerId = ~as.character(LoggerSN),
+        radius = 5,
+        weight = 0.5,
+        color = "black",
+        fill = "green",
+        fillColor = "purple",
+        fillOpacity = 0.5
+      ) %>%
+      addCircleMarkers(
+        data = filter(therm_locs, LoggerSN == random_logger),
+        lat = ~Latitude,
+        lng = ~Longitude,
+        label = ~lapply(paste0(
+          "<b>Station ID:</b> ", StationID, "<br>",
+          "<b>Station Name:</b> ", str_trunc(StationName, width = 50), "<br>",
+          "<b>Logger SN:</b> ", LoggerSN),
+          HTML),
+        layerId = "cur_point",
+        radius = 5,
+        weight = 0.5,
+        color = "black",
+        fill = "green",
+        fillColor = "green",
+        fillOpacity = 0.75
+      ) %>%
+      addLayersControl(
+        baseGroups = basemaps,
+        options = layersControlOptions(collapsed = T)
+      ) %>%
+      htmlwidgets::onRender("
+        function() {
+          $('.leaflet-control-layers-list').prepend('<b>Basemap:</b>');
+        }
+      ")
+  })
+  
+  # handle displaying selected logger in green
+  observe({
+    leafletProxy("map") %>%
+      removeMarker("cur_point")
+    
+    leafletProxy("map") %>%
+      addCircleMarkers(
+        data = cur_stn(),
+        lat = ~Latitude,
+        lng = ~Longitude,
+        label = ~lapply(paste0(
+          "<b>Station ID:</b> ", StationID, "<br>",
+          "<b>Station Name:</b> ", str_trunc(StationName, width = 50), "<br>",
+          "<b>Logger SN:</b> ", LoggerSN),
+          HTML),
+        layerId = "cur_point",
+        radius = 5,
+        weight = 0.5,
+        color = "black",
+        fill = "green",
+        fillColor = "green",
+        fillOpacity = 0.75
+      )
+  })
+  
+  observeEvent(input$zoom_in, {
+    leafletProxy("map") %>%
+      setView(
+        lat = cur_stn()$Latitude,
+        lng = cur_stn()$Longitude,
+        zoom = 10
+      )
+  })
+
+  observeEvent(input$reset_zoom, {
+    leafletProxy("map") %>%
+      fitBounds(
+        lat1 = min(therm_locs$Latitude),
+        lat2 = max(therm_locs$Latitude),
+        lng1 = min(therm_locs$Longitude),
+        lng2 = max(therm_locs$Longitude)
+      )
+  })
+  
+  # get clicked logger location and select it
+  observe({
+    updateSelectInput(
+      inputId = "logger",
+      selected = input$map_marker_click
+    )
+  })
+  
+  
+  
+  ## Plot ----
+  
+  output$plotUI <- renderUI({
+    bsCollapse(
+      bsCollapsePanel(
+        title = "Logger data time series",
+        value = "plot",
+        br(),
+        plotlyOutput("plot"),
+        div(style = "margin: 0.5em 1em; 0.5em 1em;",
+          div(style = "display: inline-flex; margin-top: 1em;",
+            div(strong("Optional plot annotations:")),
+            div(style = "margin-left: 1em;",
+              radioButtons(
+                inputId = "plotAnnotation",
+                label = NULL,
+                inline = T,
+                choices = c("Brook trout temperature range", "None")
+              )
+            )
+          ),
+          uiOutput("annotationText")
+        )
+      ),
+      open = "plot"
+    )
+  })
+  
+  output$annotationText <- renderUI({
+    if (grepl("Brook trout", input$plotAnnotation)) {
+      p(em("Optimal brook trout temperatures are shown shaded dark green (52-61°F), acceptable temperatures in light green (61-72°F), too hot in orange, and too cold in blue."))
+    }
+  })
+  
+  rect <- function(ymin, ymax, color = "red") {
+    list(
+      type = "rect",
+      fillcolor = color,
+      line = list(color = color),
+      opacity = 0.1,
+      y0 = ymin,
+      y1 = ymax,
+      xref = "paper",
+      x0 = 0,
+      x1 = 1,
+      layer = "below"
+    )
+  }
+  
+  output$plot <- renderPlotly({
+    req(input$logger)
+    
+    df_daily <- daily()
+    df_hourly <- stn_data()
+    logger_name <- input$logger
+    
+    req(nrow(df_daily) > 0)
+    req(nrow(df_hourly) > 0)
+    
+    plt <- plot_ly() %>%
+      add_ribbons(
+        data = df_daily,
+        x = ~ DateTime,
+        ymin = ~ Min,
+        ymax = ~ Max,
+        line = list(
+          color = "lightblue",
+          width = 0.5,
+          opacity = 0),
+        fillcolor = "lightblue",
+        opacity = 0.5,
+        name = "Daily Range",
+        hovertemplate = "Daily Range<extra></extra>"
+      ) %>%
+      add_lines(
+        data = df_daily,
+        x = ~ DateTime,
+        y = ~ Min,
+        line = list(
+          color = "lightblue",
+          width = 1,
+          opacity = 0.5),
+        name = "Daily Min",
+        showlegend = F
+      ) %>%
+      add_lines(
+        data = df_daily,
+        x = ~ DateTime,
+        y = ~ Max,
+        line = list(
+          color = "lightblue",
+          width = 1,
+          opacity = 0.5),
+        name = "Daily Max",
+        showlegend = F
+      ) %>%
+      add_trace(
+        data = df_hourly,
+        x = ~ DateTime,
+        y = ~ Temp_F,
+        name = "Hourly Temperature",
+        type = "scatter",
+        mode = "lines",
+        line = list(
+          color = "#1f77b4",
+          width = 0.5,
+          opacity = 0.8
+        )) %>%
+      add_trace(
+        data = df_daily,
+        x = ~ DateTime,
+        y = ~ Mean,
+        name = "Mean Daily Temp.",
+        type = "scatter",
+        mode = "lines",
+        line = list(
+          color = "orange"
+        )) %>% 
+      layout(
+        title = ifelse(
+          logger_name %in% therm_locs$LoggerSN,
+          str_trunc(paste0("Station ", cur_stn()$StationID, ": ", cur_stn()$StationName), width = 80),
+          paste0("Logger ", logger_name, " (Unknown WAV Station)")),
+        showlegend = TRUE,
+        xaxis = list(title = "Date and Time"),
+        yaxis = list(title = "Temperature (°F)", range = list(30, 100)),
+        hovermode = "x unified",
+        legend = list(
+          orientation = "h",
+          x = 0.25,
+          y = 1
+        )
+      )
+    
+    if (grepl("Brook trout", input$plotAnnotation)) {
+      plt <- plt %>%
+        layout(
+          shapes = list(
+            rect(72, 100, "darkorange"),
+            rect(61, 72, "lightgreen"),
+            rect(52, 61, "green"),
+            rect(32, 52, "cornflowerblue")
+          )
+        )
+    }
+    
+    plt
+  })
+  
+  
+  
+  ## Station summary info ----
+  
+  output$infoUI <- renderUI({
+    fluidRow(
+      column(6,
+        h4("Logger data summary:"),
+        br(),
+        renderTable(stn_summary(), colnames = F)
+      ),
+      column(6,
+        h4("Additional station information:"),
+        br(),
+        renderTable(stn_info(), colnames = F)
+      )
+    )
   })
   
   # get matching station inventory
   stn_info <- reactive({
+    req(input$logger)
+    
     therm_inventory %>%
       dplyr::filter(`2021 Therm SN` == input$logger) %>%
       pivot_longer(everything(), values_transform = as.character) %>%
@@ -197,43 +508,11 @@ server <- function(input, output, sessions) {
   
   
   
-  ## UIs ----
-  
-  output$mapUI <- renderUI({
-    list(
-      leafletOutput("map"),
-      p(em(HTML("Currently selected logger is shown in <span style='color: green;'>green</span>."), "Click on any other logger to select it."))
-    )
-    
-  })
-  
-  output$plotUI <- renderUI({
-    fluidRow(
-      column(12,
-        h4("Logger data time series"),
-        plotlyOutput("plot")
-      )
-    )
-  })
-  
-  output$infoUI <- renderUI({
-    fluidRow(
-      column(6,
-        h4("Station info"),
-        br(),
-        renderTable(stn_info(), colnames = F)
-      ),
-      column(6,
-        h4("Station data summary"),
-        br(),
-        renderTable(stn_summary(), colnames = F)
-      )
-    )
-  })
+  ## Download buttons ----
   
   output$downloadUI <- renderUI({
     cur_label <- paste0("Download current logger data (", nrow(stn_data()), " observations)")
-    all_label <- paste0("Download all logger data (", length(loggers), " loggers, ", nrow(therm_data), " observations)")
+    all_label <- paste0("Download all logger data (", length(logger_list), " loggers, ", nrow(therm_data), " observations)")
     fluidRow(
       column(12,
         h4("Download data:"),
@@ -242,84 +521,6 @@ server <- function(input, output, sessions) {
       )
     )
   })
-  
-  
-  
-  ## Map ----
-  
-  output$map <- renderLeaflet({
-    leaflet(therm_locs) %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      addCircleMarkers(
-        lat = ~Latitude,
-        lng = ~Longitude,
-        label = ~lapply(paste0(
-          "WAV station ", StationID, ": ", StationName, "<br>",
-          "Logger SN: ", LoggerSN),
-          HTML),
-        layerId = ~as.character(LoggerSN),
-        radius = 5,
-        weight = 0.5,
-        color = "black",
-        fill = "green",
-        fillColor = "purple",
-        fillOpacity = 0.5
-      ) %>%
-      addCircleMarkers(
-        data = therm_locs[1,],
-        lat = ~Latitude,
-        lng = ~Longitude,
-        label = ~HTML(paste0(
-          "WAV station ", StationID, ": ", StationName, "<br>",
-          "Logger SN: ", LoggerSN)),
-        layerId = "cur_point",
-        radius = 5,
-        weight = 0.5,
-        color = "black",
-        fill = "green",
-        fillColor = "green",
-        fillOpacity = 0.75
-      )
-  })
-  
-  # handle displaying selected logger in green
-  observe({
-    req(input$logger)
-    
-    leafletProxy("map") %>%
-      removeMarker("cur_point")
-    
-    cur_stn <- therm_locs %>%
-      filter(LoggerSN == input$logger)
-    
-    leafletProxy("map") %>%
-      addCircleMarkers(
-        data = cur_stn,
-        lat = ~Latitude,
-        lng = ~Longitude,
-        label = ~HTML(paste0(
-          "WAV station ", StationID, ": ", StationName, "<br>",
-          "Logger SN: ", LoggerSN)),
-        layerId = "cur_point",
-        radius = 5,
-        weight = 0.5,
-        color = "black",
-        fill = "green",
-        fillColor = "green",
-        fillOpacity = 0.75
-      )
-  })
-  
-  # get clicked logger location and select it
-  observe({
-    updateSelectInput(
-      inputId = "logger",
-      selected = input$map_marker_click
-    )
-  })
-  
-  
-  ## Download buttons ----
   
   output$allLoggerDL <- downloadHandler(
     filename = "wav-thermistor-data.csv",
@@ -332,86 +533,6 @@ server <- function(input, output, sessions) {
   )
   
   
-  
-  ## Plot ----
-  
-  output$plot <- renderPlotly({
-    df_daily <- daily()
-    df_hourly <- stn_data()
-    logger_name <- input$logger
-    
-    req(nrow(df_daily) > 0)
-    req(nrow(df_hourly) > 0)
-    
-    plot_ly() %>%
-      add_ribbons(
-        data = df_daily,
-        x = ~ DateTime,
-        ymin = ~ Min,
-        ymax = ~ Max,
-        line = list(
-          color = "lightblue",
-          opacity = 0),
-        fillcolor = "lightblue",
-        opacity = 0.5,
-        name = "Daily Range",
-        hovertemplate = "Daily Range<extra></extra>"
-      ) %>%
-      add_lines(
-        data = df_daily,
-        x = ~ DateTime,
-        y = ~ Min,
-        line = list(
-          color = "lightblue",
-          opacity = 0.6),
-        name = "Daily Min",
-        showlegend = F
-      ) %>%
-      add_lines(
-        data = df_daily,
-        x = ~ DateTime,
-        y = ~ Max,
-        line = list(
-          color = "lightblue",
-          opacity = 0.6),
-        name = "Daily Max",
-        showlegend = F
-      ) %>%
-      add_trace(
-        data = df_hourly,
-        x = ~ DateTime,
-        y = ~ Temp_F,
-        name = "Hourly Temperature (F)",
-        type = "scatter",
-        mode = "lines",
-        line = list(
-          color = "#1f77b4",
-          width = 1,
-          opacity = 0.8
-        )) %>%
-      add_trace(
-        data = df_daily,
-        x = ~ DateTime,
-        y = ~ Mean,
-        name = "Mean Daily Temp. (F)",
-        type = "scatter",
-        mode = "lines",
-        line = list(
-          color = "orange"
-        )) %>% 
-      layout(
-        title = paste("Temperature at logger", logger_name),
-        showlegend = TRUE,
-        xaxis = list(title = "Date and Time"),
-        yaxis = list(title = "Temperature (F)"),
-        hovermode = "x unified",
-        legend = list(
-          orientation = "h",
-          x = 0.25,
-          y = 1
-        )
-      )
-  })
   
 }
 
