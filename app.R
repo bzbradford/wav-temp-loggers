@@ -199,16 +199,16 @@ server <- function(input, output, sessions) {
   basemaps <- c(
     "Grey Canvas",
     "Open Street Map",
-    "ESRI Topo Map",
-    "Nat Geo Topo Map"
+    "ESRI Topo Map"
   )
+  
+  leaflet::providers$es
   
   output$map <- renderLeaflet({
     leaflet(therm_locs) %>%
       addTiles(group = basemaps[2]) %>%
       addProviderTiles(providers$CartoDB.Positron, group = basemaps[1]) %>%
-      addProviderTiles(providers$Esri.NatGeoWorldMap, group = basemaps[4]) %>%
-      addProviderTiles(providers$Esri.WorldStreetMap, group = basemaps[3]) %>%
+      addProviderTiles(providers$Esri.WorldTopoMap, group = basemaps[3]) %>%
       addCircleMarkers(
         lat = ~Latitude,
         lng = ~Longitude,
