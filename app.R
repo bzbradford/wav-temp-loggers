@@ -8,9 +8,18 @@ library(htmlwidgets)
 
 # Functions ---------------------------------------------------------------
 
-f_to_c <- function(f) {
-  (f - 32) * 5.0 / 9.0
+c_to_f <- function(c, d = 1) {
+  round(c * 9.0 / 5.0 + 32, d)
 }
+
+f_to_c <- function(f, d = 1) {
+  round((f - 32) * 5.0 / 9.0, d)
+}
+
+colorize <- function(text, color) {
+  paste0("<span style='color: ", color, "'>", text, "</span>")
+}
+
 
 
 
@@ -85,8 +94,6 @@ ui <- fluidPage(
   uiOutput("loggerSelectUI", style = "z-index: 1100;"),
   uiOutput("mapUI"),
   uiOutput("plotUI"),
-  # uiOutput("infoUI"),
-  # br(),
   
   fluidRow(
     column(12,
@@ -178,7 +185,7 @@ server <- function(input, output, sessions) {
         value = "map",
         leafletOutput("map"),
         div(style = "margin: 0.5em 1em; 0.5em 1em;", align = "center",
-          p(em(HTML("Currently selected logger is shown in <span style='color: green;'>green</span>."), "Click on any other logger to select it, or choose from the list above.")),
+          p(em(HTML(paste0("Currently selected logger is shown in ", colorize("green", "green"), ". Click on any other logger to select it, or choose from the list above.")))),
           p(
             actionButton("zoom_in", "Zoom to selected site"),
             actionButton("reset_zoom", "Zoom out to all sites")
@@ -396,14 +403,17 @@ server <- function(input, output, sessions) {
               inputId = "tempUnits",
               label = NULL,
               inline = T,
-              choices = c("Fahrenheit" = "F", "Celcius" = "C")
+              choices = list("Fahrenheit" = "F", "Celcius" = "C")
             ),
             div(strong("Optional plot annotations:"), style = "float: left; margin-right: 1em;"),
             radioButtons(
               inputId = "plotAnnotation",
               label = NULL,
               inline = T,
-              choices = c("Brook trout temperature range", "None")
+              choices = list(
+                "Brook trout temperature range" = "btrout",
+                "Warm/cool/coldwater classification" = "wtemp",
+                "None")
             )
           ),
           hr(),
@@ -412,17 +422,6 @@ server <- function(input, output, sessions) {
       ),
       open = "plot"
     )
-  })
-  
-  output$annotationText <- renderUI({
-    if (grepl("Brook trout", input$plotAnnotation)) {
-      req(input$tempUnits)
-      units <- input$tempUnits
-      temps <- c(52, 61, 72)
-      if (units == "C") { temps <- round(f_to_c(temps), 1) }
-      msg <- paste0("Optimal brook trout temperatures are shown shaded dark green (", temps[1], "-", temps[2], "°", units, "), acceptable temperatures in light green (", temps[2], "-", temps[3], "°", units, "), too hot in orange, and too cold in blue.")
-      p(em(msg))
-    }
   })
   
   rect <- function(ymin, ymax, color = "red") {
@@ -443,6 +442,9 @@ server <- function(input, output, sessions) {
   output$plot <- renderPlotly({
     req(input$logger)
     req(input$tempUnits)
+    req(input$plotAnnotation)
+    units <- input$tempUnits
+    annotation <- input$plotAnnotation
     
     df_daily <- daily()
     df_hourly <- stn_data()
@@ -452,7 +454,6 @@ server <- function(input, output, sessions) {
     req(nrow(df_hourly) > 0)
     
     # handle units
-    units <- input$tempUnits
     temp_col <- paste0("Temp_", units)
     ytitle <- paste0("Temperature (°", units, ")")
     if (units == "F") {
@@ -539,10 +540,17 @@ server <- function(input, output, sessions) {
         margin = list(t = 50)
       )
     
-    if (grepl("Brook trout", input$plotAnnotation)) {
-      temps <- c(32, 52, 61, 72, 100)
-      if (units == "C") { temps <- f_to_c(temps) }
-      colors <- c("cornflowerblue", "green", "lightgreen", "darkorange")
+    # add annotation color bands
+    if (annotation != "None") {
+      if (annotation == "btrout") {
+        temps <- c(32, 52, 61, 72, 100) # F
+        if (units == "C") temps <- f_to_c(temps)
+        colors <- c("cornflowerblue", "green", "lightgreen", "darkorange")
+      } else if (annotation == "wtemp") {
+        temps <- c(0, 72, 77, 100) # F
+        if (units == "C") temps <- f_to_c(temps)
+        colors <- c("blue", "cornflowerblue", "darkorange")
+      }
       
       plt <- plt %>%
         layout(
@@ -556,8 +564,32 @@ server <- function(input, output, sessions) {
   })
   
   
-  
-  
+  # Annotation explanation text for below the plot
+  output$annotationText <- renderUI({
+    req(input$plotAnnotation)
+    req(input$tempUnits)
+    annotation <- input$plotAnnotation
+    units <- input$tempUnits
+    unit_text <- paste0("°", units)
+    
+    if (annotation == "btrout") {
+      temps <- c(52, 61, 72)
+      if (units == "C") temps <- f_to_c(temps)
+      p(em(HTML(paste0(
+        "Optimal brook trout temperatures are shown shaded ", colorize("dark green", "darkgreen"),
+        " (", temps[1], "-", temps[2], unit_text, "), acceptable temperatures in ", colorize("light green", "darkseagreen"),
+        " (", temps[2], "-", temps[3], unit_text, "), too hot in ", colorize("orange", "orange"),
+        " and too cold in ", colorize("blue", "blue"), "."))))
+    } else if (annotation == "wtemp") {
+      temps <- c(72, 77)
+      if (units == "C") temps <- f_to_c(temps)
+      p(em(HTML(paste0(
+        "The DNR classifies streams as ", colorize("coldwater", "blue"), " when maximum summer temperatures are below ",
+        temps[1], unit_text, ", as ", colorize("coolwater", "deepskyblue"), " streams when maximum temperatures are between ",
+        temps[1], " and ", temps[2], unit_text, ", and as ", colorize("warmwater", "orange"),
+        " streams when maximum temperatures are above ", temps[2], unit_text, "."))))
+    }
+  })
   
   
   
