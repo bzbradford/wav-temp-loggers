@@ -6,6 +6,14 @@ library(leaflet)
 library(htmlwidgets)
 
 
+# Functions ---------------------------------------------------------------
+
+f_to_c <- function(f) {
+  (f - 32) * 5.0 / 9.0
+}
+
+
+
 # Load data ---------------------------------------------------------------
 
 
@@ -74,10 +82,11 @@ ui <- fluidPage(
   
   br(),
   
-  uiOutput("loggerSelectUI"),
+  uiOutput("loggerSelectUI", style = "z-index: 1100;"),
   uiOutput("mapUI"),
   uiOutput("plotUI"),
-  uiOutput("infoUI"), br(),
+  # uiOutput("infoUI"),
+  # br(),
   
   fluidRow(
     column(12,
@@ -143,13 +152,19 @@ server <- function(input, output, sessions) {
   ## Logger select ----
   
   output$loggerSelectUI <- renderUI({
-    selectInput(
-      inputId = "logger",
-      label = "Select temperature logger:",
-      choices = logger_list,
-      selected = random_logger,
-      width = "100%"
+    fluidRow(
+      column(12,
+        selectInput(
+          inputId = "logger",
+          label = "Select temperature logger:",
+          choices = logger_list,
+          selected = random_logger,
+          width = "100%"
+        ),
+        style = "z-index: 1001;"
+      )
     )
+
   })
   
   
@@ -285,6 +300,83 @@ server <- function(input, output, sessions) {
   
   
   
+  ## Station summary info ----
+  
+  output$infoUI <- renderUI({
+    fluidRow(
+      column(6,
+        h4("Logger data summary:"),
+        br(),
+        renderTable(stn_summary(), colnames = F)
+      ),
+      column(6,
+        h4("Additional station information:"),
+        br(),
+        renderTable(stn_info(), colnames = F)
+      )
+    )
+  })
+  
+  # get matching station inventory
+  stn_info <- reactive({
+    req(input$logger)
+    
+    therm_inventory %>%
+      dplyr::filter(`2021 Therm SN` == input$logger) %>%
+      pivot_longer(everything(), values_transform = as.character) %>%
+      arrange(name)
+  })
+  
+  # create station daily totals
+  daily <- reactive({
+    df <- stn_data()
+    req(nrow(df) > 0)
+    req(input$tempUnits)
+    temp_col <- paste0("Temp_", input$tempUnits)
+    
+    df %>%
+      group_by(Date) %>%
+      summarise(
+        N = n(),
+        Min = min(!!rlang::sym(temp_col)),
+        Max = max(!!rlang::sym(temp_col)),
+        Mean = round(mean(!!rlang::sym(temp_col)), 2),
+        Lat = Latitude[1],
+        Long = Longitude[1]
+      ) %>%
+      dplyr::filter(N == 24) %>%
+      mutate(DateTime = as.POSIXct(paste(Date, "12:00:00")))
+  })
+  
+  # create station summary for display
+  stn_summary <- reactive({
+    df <- daily()
+    req(nrow(df) > 0)
+    req(input$tempUnits)
+    units <- input$tempUnits
+    
+    df %>%
+      summarise(
+        Location = paste0(Lat[1], ", ", Long[1]),
+        `Date Deployed` = as.Date(min(Date)),
+        `Date Retrieved` = as.Date(max(Date)),
+        `Number of Days` = n(),
+        `Number of Readings` = sum(N),
+        `Max Temperature` = max(Max),
+        `Min Temperature` = min(Min),
+        `Max Daily Average` = max(Mean),
+        `Min Daily Average` = min(Mean),
+        `Average Temperature` = mean(Mean)
+      ) %>%
+      mutate(
+        across(`Max Temperature`:`Average Temperature`, round, 2),
+        across(`Max Temperature`:`Average Temperature`, paste, paste0("°", units))) %>%
+      pivot_longer(everything(), values_transform = as.character)
+  })
+  
+  
+  
+  
   ## Plot ----
   
   output$plotUI <- renderUI({
@@ -295,18 +387,27 @@ server <- function(input, output, sessions) {
         br(),
         plotlyOutput("plot"),
         div(style = "margin: 0.5em 1em; 0.5em 1em;",
-          div(style = "display: inline-flex; margin-top: 1em;",
-            div(strong("Optional plot annotations:")),
-            div(style = "margin-left: 1em;",
-              radioButtons(
-                inputId = "plotAnnotation",
-                label = NULL,
-                inline = T,
-                choices = c("Brook trout temperature range", "None")
-              )
+          p(em("High or widely fluctuating temperatures may indicate that the logger became exposed to the air, either before/after deployment, or when stream levels dropped below the point where the logger was anchored.")),
+          uiOutput("annotationText"),
+          hr(),
+          p(
+            div(strong("Temperature units:"), style = "float: left; margin-right: 1em;"),
+            radioButtons(
+              inputId = "tempUnits",
+              label = NULL,
+              inline = T,
+              choices = c("Fahrenheit" = "F", "Celcius" = "C")
+            ),
+            div(strong("Optional plot annotations:"), style = "float: left; margin-right: 1em;"),
+            radioButtons(
+              inputId = "plotAnnotation",
+              label = NULL,
+              inline = T,
+              choices = c("Brook trout temperature range", "None")
             )
           ),
-          uiOutput("annotationText")
+          hr(),
+          uiOutput("infoUI")
         )
       ),
       open = "plot"
@@ -315,7 +416,12 @@ server <- function(input, output, sessions) {
   
   output$annotationText <- renderUI({
     if (grepl("Brook trout", input$plotAnnotation)) {
-      p(em("Optimal brook trout temperatures are shown shaded dark green (52-61°F), acceptable temperatures in light green (61-72°F), too hot in orange, and too cold in blue."))
+      req(input$tempUnits)
+      units <- input$tempUnits
+      temps <- c(52, 61, 72)
+      if (units == "C") { temps <- round(f_to_c(temps), 1) }
+      msg <- paste0("Optimal brook trout temperatures are shown shaded dark green (", temps[1], "-", temps[2], "°", units, "), acceptable temperatures in light green (", temps[2], "-", temps[3], "°", units, "), too hot in orange, and too cold in blue.")
+      p(em(msg))
     }
   })
   
@@ -336,6 +442,7 @@ server <- function(input, output, sessions) {
   
   output$plot <- renderPlotly({
     req(input$logger)
+    req(input$tempUnits)
     
     df_daily <- daily()
     df_hourly <- stn_data()
@@ -343,6 +450,16 @@ server <- function(input, output, sessions) {
     
     req(nrow(df_daily) > 0)
     req(nrow(df_hourly) > 0)
+    
+    # handle units
+    units <- input$tempUnits
+    temp_col <- paste0("Temp_", units)
+    ytitle <- paste0("Temperature (°", units, ")")
+    if (units == "F") {
+      yrange <- c(30, 100)
+    } else {
+      yrange <- c(0, 37)
+    }
     
     plt <- plot_ly() %>%
       add_ribbons(
@@ -382,9 +499,8 @@ server <- function(input, output, sessions) {
         showlegend = F
       ) %>%
       add_trace(
-        data = df_hourly,
-        x = ~ DateTime,
-        y = ~ Temp_F,
+        x = df_hourly$DateTime,
+        y = df_hourly[[temp_col]],
         name = "Hourly Temperature",
         type = "scatter",
         mode = "lines",
@@ -410,24 +526,29 @@ server <- function(input, output, sessions) {
           paste0("Logger ", logger_name, " (Unknown WAV Station)")),
         showlegend = TRUE,
         xaxis = list(title = "Date and Time"),
-        yaxis = list(title = "Temperature (°F)", range = list(30, 100)),
+        yaxis = list(
+          title = ytitle,
+          range = yrange,
+          zerolinecolor = "lightgrey"),
         hovermode = "x unified",
         legend = list(
           orientation = "h",
           x = 0.25,
           y = 1
-        )
+        ),
+        margin = list(t = 50)
       )
     
     if (grepl("Brook trout", input$plotAnnotation)) {
+      temps <- c(32, 52, 61, 72, 100)
+      if (units == "C") { temps <- f_to_c(temps) }
+      colors <- c("cornflowerblue", "green", "lightgreen", "darkorange")
+      
       plt <- plt %>%
         layout(
-          shapes = list(
-            rect(72, 100, "darkorange"),
-            rect(61, 72, "lightgreen"),
-            rect(52, 61, "green"),
-            rect(32, 52, "cornflowerblue")
-          )
+          shapes = lapply(1:length(colors), function(i) {
+            rect(temps[i], temps[i + 1], colors[i])
+          })
         )
     }
     
@@ -436,75 +557,7 @@ server <- function(input, output, sessions) {
   
   
   
-  ## Station summary info ----
   
-  output$infoUI <- renderUI({
-    fluidRow(
-      column(6,
-        h4("Logger data summary:"),
-        br(),
-        renderTable(stn_summary(), colnames = F)
-      ),
-      column(6,
-        h4("Additional station information:"),
-        br(),
-        renderTable(stn_info(), colnames = F)
-      )
-    )
-  })
-  
-  # get matching station inventory
-  stn_info <- reactive({
-    req(input$logger)
-    
-    therm_inventory %>%
-      dplyr::filter(`2021 Therm SN` == input$logger) %>%
-      pivot_longer(everything(), values_transform = as.character) %>%
-      arrange(name)
-  })
-  
-  # create station daily totals
-  daily <- reactive({
-    df <- stn_data()
-    req(nrow(df) > 0)
-    
-    df %>%
-      group_by(Date) %>%
-      summarise(
-        N = n(),
-        Min = min(Temp_F),
-        Max = max(Temp_F),
-        Mean = round(mean(Temp_F), 2),
-        Lat = Latitude[1],
-        Long = Longitude[1]
-      ) %>%
-      dplyr::filter(N == 24) %>%
-      mutate(DateTime = as.POSIXct(paste(Date, "12:00:00")))
-  })
-  
-  # create station summary for display
-  stn_summary <- reactive({
-    df <- daily()
-    req(nrow(df) > 0)
-    
-    df %>%
-      summarise(
-        Location = paste0(Lat[1], ", ", Long[1]),
-        `Date Deployed` = as.Date(min(Date)),
-        `Date Retrieved` = as.Date(max(Date)),
-        `Number of Days` = n(),
-        `Number of Readings` = sum(N),
-        `Max Temperature` = max(Max),
-        `Min Temperature` = min(Min),
-        `Max Daily Average` = max(Mean),
-        `Min Daily Average` = min(Mean),
-        `Average Temperature` = mean(Mean)
-      ) %>%
-      mutate(
-        across(`Max Temperature`:`Average Temperature`, round, 2),
-        across(`Max Temperature`:`Average Temperature`, paste, "°F")) %>%
-      pivot_longer(everything(), values_transform = as.character)
-  })
   
   
   
