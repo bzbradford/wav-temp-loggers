@@ -37,34 +37,17 @@ therm_data <- bind_rows(
   read_csv("data/2021-thermistor-data.csv.gz", col_types = cols())
 )
 
-therm_inventory <- bind_rows(
+therm_inventory_in <- bind_rows(
   read_csv("data/2020-therm-inventory.csv", col_types = cols()),
   read_csv("data/2021-therm-inventory.csv", col_types = cols())
 )
 
-# therm_locs <- read_csv("data/therm-locs.csv")
+therm_years <- therm_inventory_in %>%
+  group_by(StationID) %>%
+  summarise(YearsActive = paste(unlist(Year), collapse = ", "))
 
-# logger_list <- list()
-# for (i in 1:nrow(therm_inventory)) {
-#   if (i == 1) logger_list <- list()
-#   sn = therm_inventory$LoggerSN[i]
-#   id = therm_inventory$StationID[i]
-#   name = therm_inventory$StationName[i]
-#   label = ifelse(
-#     is.na(id),
-#     paste0("SN ", sn, ", Unknown WAV station"),
-#     paste0("SN ", sn, ", WAV station ", id, ": ", name)
-#   )
-#   logger_list[[label]] = sn
-# }
-# 
-# logger_list <- therm_inventory %>%
-#   filter(Year == 2021) %>%
-#   mutate(Label = paste0("Station ", StationID, ": ", StationName)) %>%
-#   arrange(StationID) %>%
-#   select(Label, LoggerSN) %>%
-#   deframe() %>%
-#   as.list()
+therm_inventory <- left_join(therm_inventory_in, therm_years, by = "StationID") %>%
+  select(Year, YearsActive, everything())
 
 
 
@@ -158,9 +141,14 @@ server <- function(input, output, sessions) {
   
   ## On startup ----
   
-  random_logger <- therm_inventory %>%
+  # random_logger <- therm_inventory %>%
+  #   filter(Year == max(years)) %>%
+  #   pull(LoggerSN) %>%
+  #   sample(1)
+  
+  random_stn <- therm_inventory %>%
     filter(Year == max(years)) %>%
-    pull(LoggerSN) %>%
+    pull(StationID) %>%
     sample(1)
   
   
@@ -174,7 +162,7 @@ server <- function(input, output, sessions) {
       filter(Year == input$year) %>%
       mutate(Label = paste0("Station ", StationID, ": ", StationName)) %>%
       arrange(StationID) %>%
-      select(Label, LoggerSN) %>%
+      select(Label, StationID) %>%
       deframe() %>%
       as.list()
   })
@@ -184,7 +172,7 @@ server <- function(input, output, sessions) {
     req(input$logger)
     
     therm_inventory %>%
-      filter(Year == input$year, LoggerSN == input$logger)
+      filter(Year == input$year, StationID == input$logger)
   })
   
   # select station data
@@ -193,7 +181,7 @@ server <- function(input, output, sessions) {
     req(input$logger)
     
     therm_data %>%
-      filter(Year == input$year, LoggerSN == input$logger) %>%
+      filter(Year == input$year, StationID == input$logger) %>%
       arrange(DateTime)
   })
   
@@ -207,8 +195,7 @@ server <- function(input, output, sessions) {
         selectInput(
           inputId = "logger",
           label = "Select temperature logger:",
-          choices = logger_list(),
-          selected = random_logger,
+          choices = list("Select a station" = NULL),
           width = "100%"
         ),
         style = "z-index: 1001;"
@@ -216,12 +203,29 @@ server <- function(input, output, sessions) {
     )
   })
   
+  observeEvent(input$year, {
+    stations <- logger_list()
+    if (is.null(input$logger)) {
+      selected <- random_stn
+    } else if (input$logger %in% stations) {
+      selected <- input$logger
+    } else {
+      selected <- stations[1]
+    }
+    updateSelectInput(
+      inputId = "logger",
+      choices = stations,
+      selected = selected
+    )
+  })
   
   
   ## Map ----
   
   output$mapUI <- renderUI({
     bsCollapse(
+      id = "map_collapse",
+      open = "map",
       bsCollapsePanel(
         title = "Logger location map",
         value = "map",
@@ -233,8 +237,7 @@ server <- function(input, output, sessions) {
             actionButton("reset_zoom", "Zoom out to all sites")
           )
         )
-      ),
-      open = "map"
+      )
     )
   })
   
@@ -246,9 +249,6 @@ server <- function(input, output, sessions) {
   
   output$map <- renderLeaflet({
     req(input$year)
-    
-    # first_pt <- therm_inventory %>%
-    #   filter(Year == input$year, LoggerSN == random_logger)
     
     therm_inventory %>%
       filter(Year == input$year) %>%
@@ -262,9 +262,9 @@ server <- function(input, output, sessions) {
         label = ~lapply(paste0(
           "<b>Station ID:</b> ", StationID, "<br>",
           "<b>Station Name:</b> ", gsub("\n", "<br>&nbsp;&nbsp;&nbsp;&nbsp;", str_wrap(StationName, width = 40)), "<br>",
-          "<b>Logger SN:</b> ", LoggerSN),
+          "<b>Years covered:</b> ", YearsActive),
           HTML),
-        layerId = ~as.character(LoggerSN),
+        layerId = ~as.character(StationID),
         radius = 5,
         weight = 0.5,
         color = "black",
@@ -284,7 +284,7 @@ server <- function(input, output, sessions) {
   })
   
   # handle displaying selected logger in green
-  observe({
+  observeEvent(list(cur_stn(), input$map_collapse), {
     leafletProxy("map") %>%
       removeMarker("cur_point")
     
@@ -296,7 +296,7 @@ server <- function(input, output, sessions) {
         label = ~lapply(paste0(
           "<b>Station ID:</b> ", StationID, "<br>",
           "<b>Station Name:</b> ", str_trunc(StationName, width = 50), "<br>",
-          "<b>Logger SN:</b> ", LoggerSN),
+          "<b>Years covered:</b> ", YearsActive),
           HTML),
         layerId = "cur_point",
         radius = 5,
@@ -360,7 +360,7 @@ server <- function(input, output, sessions) {
     req(input$logger)
     
     therm_inventory %>%
-      filter(Year == input$year, LoggerSN == input$logger) %>%
+      filter(Year == input$year, StationID == input$logger) %>%
       pivot_longer(everything(), values_transform = as.character)
   })
   
@@ -381,7 +381,6 @@ server <- function(input, output, sessions) {
         Lat = Latitude[1],
         Long = Longitude[1]
       ) %>%
-      dplyr::filter(N == 24) %>%
       mutate(DateTime = as.POSIXct(paste(Date, "12:00:00")))
   })
   
@@ -421,11 +420,11 @@ server <- function(input, output, sessions) {
       bsCollapsePanel(
         title = "Logger data time series",
         value = "plot",
-        br(),
         plotlyOutput("plot"),
-        div(style = "margin: 0.5em 1em; 0.5em 1em;",
-          p(em("High or widely fluctuating temperatures may indicate that the logger became exposed to the air, either before/after deployment, or when stream levels dropped below the point where the logger was anchored.")),
+        div(
+          style = "margin: 0.5em 1em; 0.5em 1em;",
           uiOutput("annotationText"),
+          p(em("High or widely fluctuating temperatures may indicate that the logger became exposed to the air, either before/after deployment, or when stream levels dropped below the point where the logger was anchored.")),
           hr(),
           p(
             div(strong("Temperature units:"), style = "float: left; margin-right: 1em;"),
@@ -624,10 +623,10 @@ server <- function(input, output, sessions) {
   ## Download buttons ----
   
   output$downloadUI <- renderUI({
-    cur_label <- paste0("Download data for selected logger (", nrow(stn_data()), " observations)")
+    cur_label <- paste0("Download ", input$year, " data for Station #", cur_stn()$StationID)
     all_label <- paste0(
-      "Download ", input$year, " data for all loggers (", length(logger_list()),
-      " loggers, ", nrow(filter(therm_data, Year == input$year)), " observations)")
+      "Download all data for ", input$year, " (", length(logger_list()), " stations, ",
+      formatC(nrow(filter(therm_data, Year == input$year)), format = "d", big.mark = ","), " observations)")
     fluidRow(
       column(12,
         h4("Download data:"),
@@ -637,19 +636,8 @@ server <- function(input, output, sessions) {
     )
   })
   
-  # output$allLoggerDL <- downloadHandler(
-  #   filename = paste0(input$year, " wav thermistor data.zip"),
-  #   content = function(fname) {
-  #     write_csv(therm_data, "wav thermistor data.csv")
-  #     zip(fname, "wav thermistor data.csv")
-  #   },
-  #   contentType = "application/zip"
-  # )
-  
   output$allLoggerDL <- downloadHandler(
-    filename = function() {
-      paste0(input$year, " wav thermistor data.zip")
-    },
+    filename = paste0(input$year, " wav thermistor data.zip"),
     content = function(file) {
       file.copy(zips[[input$year]], file)
     },
@@ -658,7 +646,9 @@ server <- function(input, output, sessions) {
   
   output$selectedLoggerDL <- downloadHandler(
     filename = paste0(input$year, " wav thermistor data for station ", cur_stn()$StationID, ".csv"),
-    content = function(file) {write_csv(stn_data(), file)}
+    content = function(file) {
+      write_csv(stn_data(), file)
+    }
   )
   
   
