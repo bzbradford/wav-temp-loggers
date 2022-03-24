@@ -140,12 +140,7 @@ ui <- fluidPage(
 server <- function(input, output, sessions) {
   
   ## On startup ----
-  
-  # random_logger <- therm_inventory %>%
-  #   filter(Year == max(years)) %>%
-  #   pull(LoggerSN) %>%
-  #   sample(1)
-  
+
   random_stn <- therm_inventory %>%
     filter(Year == max(years)) %>%
     pull(StationID) %>%
@@ -248,30 +243,18 @@ server <- function(input, output, sessions) {
   )
   
   output$map <- renderLeaflet({
-    req(input$year)
-    
-    therm_inventory %>%
-      filter(Year == input$year) %>%
-      leaflet() %>%
+    leaflet() %>%
+      fitBounds(
+        lat1 = min(therm_inventory$Latitude),
+        lat2 = max(therm_inventory$Latitude),
+        lng1 = min(therm_inventory$Longitude),
+        lng2 = max(therm_inventory$Longitude)
+      ) %>%
       addTiles(group = basemaps[2]) %>%
       addProviderTiles(providers$CartoDB.Positron, group = basemaps[1]) %>%
       addProviderTiles(providers$Esri.WorldTopoMap, group = basemaps[3]) %>%
-      addCircleMarkers(
-        lat = ~Latitude,
-        lng = ~Longitude,
-        label = ~lapply(paste0(
-          "<b>Station ID:</b> ", StationID, "<br>",
-          "<b>Station Name:</b> ", gsub("\n", "<br>&nbsp;&nbsp;&nbsp;&nbsp;", str_wrap(StationName, width = 40)), "<br>",
-          "<b>Years covered:</b> ", YearsActive),
-          HTML),
-        layerId = ~as.character(StationID),
-        radius = 5,
-        weight = 0.5,
-        color = "black",
-        fill = "green",
-        fillColor = "purple",
-        fillOpacity = 0.5
-      ) %>%
+      addMapPane("all_points", zIndex = 420) %>%
+      addMapPane("cur_point", zIndex = 430) %>%
       addLayersControl(
         baseGroups = basemaps,
         options = layersControlOptions(collapsed = T)
@@ -283,12 +266,41 @@ server <- function(input, output, sessions) {
       ")
   })
   
-  # handle displaying selected logger in green
-  observeEvent(list(cur_stn(), input$map_collapse), {
-    leafletProxy("map") %>%
-      removeMarker("cur_point")
+  observeEvent(list(logger_list(), input$map_collapse), {
+    req(input$year)
+    
+    df <- therm_inventory %>%
+      filter(Year == input$year)
     
     leafletProxy("map") %>%
+      clearGroup("all_points") %>%
+      addCircleMarkers(
+        data = df,
+        lat = ~Latitude,
+        lng = ~Longitude,
+        label = ~lapply(paste0(
+          "<b>Station ID:</b> ", StationID, "<br>",
+          "<b>Station Name:</b> ", gsub("\n", "<br>&nbsp;&nbsp;&nbsp;&nbsp;", str_wrap(StationName, width = 40)), "<br>",
+          "<b>Years covered:</b> ", YearsActive),
+          HTML),
+        group = "all_points",
+        layerId = ~ StationID,
+        options = pathOptions(pane = "all_points"),
+        radius = 5,
+        weight = 0.5,
+        color = "black",
+        fill = "green",
+        fillColor = "purple",
+        fillOpacity = 0.5
+      )
+  })
+  
+  # handle displaying selected logger in green
+  observeEvent(list(cur_stn(), input$map_collapse), {
+    req(cur_stn())
+    
+    leafletProxy("map") %>%
+      clearGroup("cur_point") %>%
       addCircleMarkers(
         data = cur_stn(),
         lat = ~Latitude,
@@ -298,7 +310,9 @@ server <- function(input, output, sessions) {
           "<b>Station Name:</b> ", str_trunc(StationName, width = 50), "<br>",
           "<b>Years covered:</b> ", YearsActive),
           HTML),
-        layerId = "cur_point",
+        layerId = ~StationID,
+        group = "cur_point",
+        options = pathOptions(pane = "cur_point"),
         radius = 5,
         weight = 0.5,
         color = "black",
@@ -623,15 +637,25 @@ server <- function(input, output, sessions) {
   ## Download buttons ----
   
   output$downloadUI <- renderUI({
-    cur_label <- paste0("Download ", input$year, " data for Station #", cur_stn()$StationID)
-    all_label <- paste0(
-      "Download all data for ", input$year, " (", length(logger_list()), " stations, ",
-      formatC(nrow(filter(therm_data, Year == input$year)), format = "d", big.mark = ","), " observations)")
+    req(input$year)
+    req(logger_list())
+    req(cur_stn())
+    
     fluidRow(
       column(12,
         h4("Download data:"),
-        downloadButton("selectedLoggerDL", cur_label), br(),
-        downloadButton("allLoggerDL", all_label)
+        tags$ul(
+          tags$li(
+            paste0("Data for selected site (", input$year, ", Station #", cur_stn()$StationID, ": ", cur_stn()$StationName, ")"),
+            br(),
+            downloadButton("selectedLoggerDL")),
+          tags$li(
+            style = "margin-top: 1em;",
+            paste0("Data for all sites in ", input$year, " (", length(logger_list()), " stations, ",
+              formatC(nrow(filter(therm_data, Year == input$year)), format = "d", big.mark = ","), " observations)"),
+            br(),
+            downloadButton("allLoggerDL"))
+        )
       )
     )
   })

@@ -5,10 +5,10 @@ account: bbradford
 server: data-viz.it.wisc.edu
 hostUrl: https://data-viz.it.wisc.edu/__api__
 appId: 274
-bundleId: 1757
+bundleId: 1758
 url: https://data-viz.it.wisc.edu/wav-temp-loggers/
-when: 1648076350.49484
-lastSyncTime: 1648076350.49484
+when: 1648134649.65923
+lastSyncTime: 1648134649.65923
 asMultiple: FALSE
 asStatic: FALSE
 ignoredFiles: .RData
