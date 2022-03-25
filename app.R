@@ -446,7 +446,7 @@ server <- function(input, output, sessions) {
               inputId = "tempUnits",
               label = NULL,
               inline = T,
-              choices = list("Fahrenheit" = "F", "Celcius" = "C")
+              choices = list("Fahrenheit" = "F", "Celsius" = "C")
             ),
             div(strong("Optional plot annotations:"), style = "float: left; margin-right: 1em;"),
             radioButtons(
