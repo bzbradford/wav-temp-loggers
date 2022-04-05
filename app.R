@@ -4,6 +4,7 @@ library(plotly)
 library(shinyBS)
 library(leaflet)
 library(htmlwidgets)
+library(DT)
 
 
 # Functions ---------------------------------------------------------------
@@ -71,6 +72,11 @@ ui <- fluidPage(
       .panel-body {
         padding: 0px;
       }
+      
+      .has-feedback .form-control {
+        padding-right: 12px;
+        min-width: 5em;
+      }
     ")
   ),
   
@@ -99,6 +105,8 @@ ui <- fluidPage(
   uiOutput("loggerSelectUI", style = "z-index: 1100;"),
   uiOutput("mapUI"),
   uiOutput("plotUI"),
+  uiOutput("loggerListUI"),
+  uiOutput("downloadUI"),
   
   fluidRow(
     column(12,
@@ -117,13 +125,7 @@ ui <- fluidPage(
   ),
   
   br(),
-  
-  uiOutput("downloadUI"), br(),
-  
-  br(),
-  
   hr(),
-  
   p(
     style = "color: grey; font-size: smaller; font-style: italic;",
     align = "center",
@@ -633,6 +635,29 @@ server <- function(input, output, sessions) {
   })
   
   
+  ## Logger/Station lists ----
+  
+  output$loggerListUI <- renderUI({
+    bsCollapse(
+      bsCollapsePanel(
+        title = "Searchable list of loggers",
+        div(
+          style = "margin: 0.5em 1em; 0.5em 1em; overflow: auto",
+          {
+            therm_inventory_in %>%
+              mutate(across(where(is.numeric), as.character)) %>%
+              renderDataTable(
+                filter = "top",
+                options = list(
+                  pageLength = 5,
+                  lengthMenu = c(5, 10, 25, 100)
+                ))
+          }
+        )
+      )
+    )
+  })
+  
   
   ## Download buttons ----
   
@@ -641,24 +666,41 @@ server <- function(input, output, sessions) {
     req(logger_list())
     req(cur_stn())
     
-    fluidRow(
-      column(12,
-        h4("Download data:"),
-        tags$ul(
-          tags$li(
-            paste0("Data for selected site (", input$year, ", Station #", cur_stn()$StationID, ": ", cur_stn()$StationName, ")"),
-            br(),
-            downloadButton("selectedLoggerDL")),
-          tags$li(
-            style = "margin-top: 1em;",
-            paste0("Data for all sites in ", input$year, " (", length(logger_list()), " stations, ",
-              formatC(nrow(filter(therm_data, Year == input$year)), format = "d", big.mark = ","), " observations)"),
-            br(),
-            downloadButton("allLoggerDL"))
+    bsCollapse(
+      bsCollapsePanel(
+        title = "Download data",
+        div(
+          style = "margin: 0.5em 1em; 0.5em 1em;",
+          h4("Data download options:"),
+          tags$ul(
+            tags$li(
+              paste0("Data for selected site: ", input$year, ", Station #", cur_stn()$StationID, ": ", cur_stn()$StationName),
+              br(),
+              downloadButton("selectedLoggerDL")),
+            tags$li(
+              style = "margin-top: 1em;",
+              paste0("Data for all sites in ", input$year, ": ", length(logger_list()), " stations, ",
+                formatC(nrow(filter(therm_data, Year == input$year)), format = "d", big.mark = ","), " observations"),
+              br(),
+              downloadButton("allLoggerDL")),
+            tags$li(
+              style = "margin-top: 1em;",
+              paste0("Logger list: ", nrow(therm_inventory_in), " loggers deployed at ", length(unique(therm_inventory_in$StationID)), " stations over ", length(unique(therm_inventory_in$Year)), " years"),
+              br(),
+              downloadButton("loggerListDL")
+            )
+          )
         )
       )
     )
   })
+  
+  output$selectedLoggerDL <- downloadHandler(
+    filename = paste0(input$year, " wav thermistor data for station ", cur_stn()$StationID, ".csv"),
+    content = function(file) {
+      write_csv(stn_data(), file)
+    }
+  )
   
   output$allLoggerDL <- downloadHandler(
     filename = paste0(input$year, " wav thermistor data.zip"),
@@ -668,10 +710,10 @@ server <- function(input, output, sessions) {
     contentType = "application/zip"
   )
   
-  output$selectedLoggerDL <- downloadHandler(
-    filename = paste0(input$year, " wav thermistor data for station ", cur_stn()$StationID, ".csv"),
+  output$loggerListDL <- downloadHandler(
+    filename = "wav thermistor list.csv",
     content = function(file) {
-      write_csv(stn_data(), file)
+      write_csv(therm_inventory_in, file)
     }
   )
   
