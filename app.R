@@ -129,7 +129,9 @@ ui <- fluidPage(
   p(
     style = "color: grey; font-size: smaller; font-style: italic;",
     align = "center",
-    "Developed by Ben Bradford, UW-Madison Entomology", br(),
+    "Dashboard developed by",
+    a("Ben Bradford", href = "https://github.com/bzbradford", target = "_blank", .noWS = "after"),
+    ", UW-Madison Entomology", br(),
     paste("Last updated:", format(file.info(".")$mtime, "%Y-%m-%d")), br(),
     a("Source code", href = "https://github.com/bzbradford/wav-temp-loggers", target = "_blank")
   )
@@ -152,11 +154,15 @@ server <- function(input, output, sessions) {
   
   ## Reactive values ----
   
-  logger_list <- reactive({
+  avail_stations <- reactive({
     req(input$year)
     
     therm_inventory %>%
-      filter(Year == input$year) %>%
+      filter(Year == input$year)
+  })
+  
+  logger_list <- reactive({
+    avail_stations() %>%
       mutate(Label = paste0("Station ", StationID, ": ", StationName)) %>%
       arrange(StationID) %>%
       select(Label, StationID) %>%
@@ -165,11 +171,10 @@ server <- function(input, output, sessions) {
   })
   
   cur_stn <- reactive({
-    req(input$year)
     req(input$logger)
     
-    therm_inventory %>%
-      filter(Year == input$year, StationID == input$logger)
+    avail_stations() %>%
+      filter(StationID == input$logger)
   })
   
   # select station data
@@ -231,7 +236,8 @@ server <- function(input, output, sessions) {
           p(em(HTML(paste0("Currently selected logger is shown in ", colorize("green", "green"), ". Click on any other logger to select it, or choose from the list above.")))),
           p(
             actionButton("zoom_in", "Zoom to selected site"),
-            actionButton("reset_zoom", "Zoom out to all sites")
+            actionButton("reset_zoom", "Zoom out to all sites"),
+            actionButton("random_site", "Random site")
           )
         )
       )
@@ -340,6 +346,22 @@ server <- function(input, output, sessions) {
         lat2 = max(therm_inventory$Latitude),
         lng1 = min(therm_inventory$Longitude),
         lng2 = max(therm_inventory$Longitude)
+      )
+  })
+  
+  observeEvent(input$random_site, {
+    stn_id <- sample(avail_stations()$StationID, 1)
+    stn <- avail_stations() %>%
+      filter(StationID == stn_id)
+    updateSelectInput(
+      inputId = "logger",
+      selected = stn_id
+    )
+    leafletProxy("map") %>%
+      setView(
+        lat = stn$Latitude,
+        lng = stn$Longitude,
+        zoom = 10
       )
   })
   
